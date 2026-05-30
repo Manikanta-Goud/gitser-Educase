@@ -212,11 +212,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         const offset = circumference * (1 - score / 100);
 
         const breakdownItems = [
+            { label: '🔥 Total Commits', score: bd.commits.score, max: bd.commits.max, value: bd.commits.value + ' commits' },
+            { label: '📅 Active Days', score: bd.activeDays.score, max: bd.activeDays.max, value: bd.activeDays.value + ' days' },
             { label: '📦 Repositories', score: bd.repos.score, max: bd.repos.max, value: bd.repos.value + ' repos' },
-            { label: '👥 Followers', score: bd.followers.score, max: bd.followers.max, value: bd.followers.value + ' followers' },
-            { label: '⭐ Stars Earned', score: bd.stars.score, max: bd.stars.max, value: bd.stars.value + ' stars' },
-            { label: '🍴 Forks Earned', score: bd.forks.score, max: bd.forks.max, value: bd.forks.value + ' forks' },
-            { label: '📅 Account Age', score: bd.accountAge.score, max: bd.accountAge.max, value: bd.accountAge.value + ' years' },
         ];
 
         scorePanel.innerHTML = `

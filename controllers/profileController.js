@@ -1,5 +1,6 @@
 const axios = require('axios');
 const pool = require('../config/database');
+const cheerio = require('cheerio');
 
 // Analyze and store profile
 const analyzeProfile = async (req, res) => {
@@ -155,11 +156,9 @@ const getFollowing = async (req, res) => {
 
 // ── FEATURE 1: Developer Score ──────────────────────────────────────────────
 // Scoring formula (max 100 pts):
-//   Repos        → up to 25 pts  (log-scaled, 100 repos = 25)
-//   Followers    → up to 25 pts  (log-scaled, 500 followers = 25)
-//   Stars earned → up to 25 pts  (sum of stargazers across all repos, log-scaled)
-//   Forks earned → up to 10 pts
-//   Account age  → up to 15 pts  (1 pt per year, capped at 15)
+//   Commits      → 50% (capped at 2000)
+//   Active Days  → 40% (capped at 200)
+//   Repos        → 10% (capped at 50)
 const getDeveloperScore = async (req, res) => {
     const { username } = req.params;
     try {
@@ -167,37 +166,47 @@ const getDeveloperScore = async (req, res) => {
         const profileRes = await axios.get(`https://api.github.com/users/${username}`);
         const user = profileRes.data;
 
-        // Fetch repos (up to 100)
-        const reposRes = await axios.get(
-            `https://api.github.com/users/${username}/repos?per_page=100&sort=updated`
-        );
-        const repos = reposRes.data;
-
-        // Aggregate stars & forks (excluding forks — own work only)
-        const ownRepos  = repos.filter(r => !r.fork);
-        const totalStars = ownRepos.reduce((s, r) => s + r.stargazers_count, 0);
-        const totalForks = ownRepos.reduce((s, r) => s + r.forks_count, 0);
+        // Scrape GitHub contributions for accurate commits and active days
+        let totalCommits = 0;
+        let activeDays = 0;
+        try {
+            const contribRes = await axios.get(`https://github.com/users/${username}/contributions`);
+            const $ = cheerio.load(contribRes.data);
+            
+            $('td.ContributionCalendar-day').each((i, el) => {
+                const level = $(el).attr('data-level');
+                if (level && level !== '0') {
+                    activeDays++;
+                }
+                const tooltipId = $(el).attr('id');
+                if (tooltipId) {
+                    const tooltipText = $(`tool-tip[for="${tooltipId}"]`).text();
+                    const match = tooltipText.match(/^(\d+) contribution/);
+                    if (match) {
+                        totalCommits += parseInt(match[1], 10);
+                    }
+                }
+            });
+        } catch (scrapeErr) {
+            console.error('Failed to scrape contributions:', scrapeErr.message);
+            // fallback gracefully to 0 if scrape fails
+        }
 
         // Score components
-        const logScale = (val, cap) => Math.min(Math.log1p(val) / Math.log1p(cap), 1);
+        const commitScore = Math.min((totalCommits / 2000) * 50, 50);
+        const daysScore = Math.min((activeDays / 200) * 40, 40);
+        const repoScore = Math.min((user.public_repos / 50) * 10, 10);
 
-        const repoScore      = Math.round(logScale(user.public_repos, 100) * 25);
-        const followerScore  = Math.round(logScale(user.followers, 500)  * 25);
-        const starScore      = Math.round(logScale(totalStars, 1000)      * 25);
-        const forkScore      = Math.round(logScale(totalForks, 200)       * 10);
+        const totalScore = Math.round(commitScore + daysScore + repoScore);
 
-        const accountAgeYears = (Date.now() - new Date(user.created_at)) / (1000 * 60 * 60 * 24 * 365);
-        const ageScore        = Math.min(Math.round(accountAgeYears), 15);
-
-        const totalScore = repoScore + followerScore + starScore + forkScore + ageScore;
-
-        // Rank labels
+        // Percentile Labels
         let rank, rankColor;
-        if      (totalScore >= 85) { rank = 'Elite';        rankColor = '#f59e0b'; }
-        else if (totalScore >= 70) { rank = 'Advanced';     rankColor = '#6366f1'; }
-        else if (totalScore >= 50) { rank = 'Intermediate'; rankColor = '#0ea5e9'; }
-        else if (totalScore >= 30) { rank = 'Beginner';     rankColor = '#22c55e'; }
-        else                       { rank = 'Newcomer';     rankColor = '#94a3b8'; }
+        if      (totalScore >= 90) { rank = 'Top 1%';  rankColor = '#f59e0b'; } // Elite Gold
+        else if (totalScore >= 75) { rank = 'Top 5%';  rankColor = '#6366f1'; } // Indigo
+        else if (totalScore >= 50) { rank = 'Top 15%'; rankColor = '#0ea5e9'; } // Light Blue
+        else if (totalScore >= 30) { rank = 'Top 30%'; rankColor = '#22c55e'; } // Green
+        else if (totalScore >= 10) { rank = 'Top 50%'; rankColor = '#f43f5e'; } // Rose
+        else                       { rank = 'Top 100%';rankColor = '#94a3b8'; } // Gray
 
         res.status(200).json({
             username,
@@ -205,11 +214,9 @@ const getDeveloperScore = async (req, res) => {
             rank,
             rankColor,
             breakdown: {
-                repos:     { score: repoScore,     max: 25, value: user.public_repos },
-                followers: { score: followerScore, max: 25, value: user.followers },
-                stars:     { score: starScore,     max: 25, value: totalStars },
-                forks:     { score: forkScore,     max: 10, value: totalForks },
-                accountAge:{ score: ageScore,      max: 15, value: Math.round(accountAgeYears * 10) / 10 }
+                commits: { score: Math.round(commitScore), max: 50, value: totalCommits },
+                activeDays: { score: Math.round(daysScore), max: 40, value: activeDays },
+                repos: { score: Math.round(repoScore), max: 10, value: user.public_repos }
             }
         });
 
@@ -217,6 +224,7 @@ const getDeveloperScore = async (req, res) => {
         if (error.response && error.response.status === 404) {
             return res.status(404).json({ error: 'GitHub user not found' });
         }
+        console.error('Failed to calc score:', error);
         res.status(500).json({ error: 'Failed to calculate developer score' });
     }
 };
