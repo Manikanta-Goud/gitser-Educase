@@ -154,59 +154,253 @@ const getFollowing = async (req, res) => {
     }
 };
 
-// ── FEATURE 1: Developer Score ──────────────────────────────────────────────
-// Scoring formula (max 100 pts):
-//   Commits      → 50% (capped at 2000)
-//   Active Days  → 40% (capped at 200)
-//   Repos        → 10% (capped at 50)
+// ── FEATURE 1: Professional Developer Score ─────────────────────────────────
+// 5-metric scoring system (max 100 pts):
+//   1. Commit Consistency  → 25 pts (streak weeks, gaps analysis)
+//   2. Commit Quality      → 20 pts (message length, descriptiveness)
+//   3. Real Projects       → 20 pts (original repos with descriptions, topics, stars)
+//   4. README Quality      → 20 pts (length, sections, code blocks, badges)
+//   5. Code Quality        → 15 pts (config files, test folders, structure)
+
+// Helper: Build axios config with optional GitHub token
+function ghHeaders() {
+    const headers = { 'Accept': 'application/vnd.github.v3+json' };
+    if (process.env.GITHUB_TOKEN) {
+        headers['Authorization'] = `token ${process.env.GITHUB_TOKEN}`;
+    }
+    return { headers };
+}
+
 const getDeveloperScore = async (req, res) => {
     const { username } = req.params;
     try {
-        // Fetch basic profile
-        const profileRes = await axios.get(`https://api.github.com/users/${username}`);
-        const user = profileRes.data;
+        const config = ghHeaders();
 
-        // Scrape GitHub contributions for accurate commits and active days
-        let totalCommits = 0;
+        // ─── Parallel data fetch ───────────────────────────────────
+        const [profileRes, reposRes, contribRes] = await Promise.all([
+            axios.get(`https://api.github.com/users/${username}`, config),
+            axios.get(`https://api.github.com/users/${username}/repos?per_page=100&sort=updated`, config),
+            axios.get(`https://github.com/users/${username}/contributions`).catch(() => null)
+        ]);
+
+        const user = profileRes.data;
+        const repos = reposRes.data;
+        const ownRepos = repos.filter(r => !r.fork);
+
+        // ═══════════════════════════════════════════════════════════
+        // 1. COMMIT CONSISTENCY (max 25 pts)
+        //    - Scrape contribution calendar
+        //    - Count active weeks out of 52
+        // ═══════════════════════════════════════════════════════════
         let activeDays = 0;
-        try {
-            const contribRes = await axios.get(`https://github.com/users/${username}/contributions`);
+        let totalContributions = 0;
+        let activeWeeks = 0;
+
+        if (contribRes && contribRes.data) {
             const $ = cheerio.load(contribRes.data);
-            
+            const daysByWeek = {};
+            let dayIndex = 0;
+
             $('td.ContributionCalendar-day').each((i, el) => {
                 const level = $(el).attr('data-level');
+                const weekNum = Math.floor(dayIndex / 7);
                 if (level && level !== '0') {
                     activeDays++;
+                    daysByWeek[weekNum] = true;
                 }
                 const tooltipId = $(el).attr('id');
                 if (tooltipId) {
                     const tooltipText = $(`tool-tip[for="${tooltipId}"]`).text();
                     const match = tooltipText.match(/^(\d+) contribution/);
                     if (match) {
-                        totalCommits += parseInt(match[1], 10);
+                        totalContributions += parseInt(match[1], 10);
                     }
                 }
+                dayIndex++;
             });
-        } catch (scrapeErr) {
-            console.error('Failed to scrape contributions:', scrapeErr.message);
-            // fallback gracefully to 0 if scrape fails
+            activeWeeks = Object.keys(daysByWeek).length;
         }
 
-        // Score components
-        const commitScore = Math.min((totalCommits / 2000) * 50, 50);
-        const daysScore = Math.min((activeDays / 200) * 40, 40);
-        const repoScore = Math.min((user.public_repos / 50) * 10, 10);
+        // Score: active weeks out of 52, with bonus for streaks
+        const consistencyRatio = Math.min(activeWeeks / 40, 1); // 40+ weeks = perfect
+        const consistencyScore = Math.round(consistencyRatio * 25);
+        const consistencyDetail = `${activeWeeks}/52 weeks active, ${activeDays} days, ${totalContributions} contributions`;
 
-        const totalScore = Math.round(commitScore + daysScore + repoScore);
+        // ═══════════════════════════════════════════════════════════
+        // 2. COMMIT QUALITY (max 20 pts)
+        //    - Fetch recent commits from top 3 repos
+        //    - Analyze message length & descriptiveness
+        // ═══════════════════════════════════════════════════════════
+        let commitQualityScore = 0;
+        let commitQualityDetail = 'No commit data';
 
-        // Percentile Labels
+        try {
+            // Pick top 3 most recently updated own repos
+            const topRepos = ownRepos.slice(0, 3);
+            let allMessages = [];
+
+            const commitFetches = topRepos.map(r =>
+                axios.get(`https://api.github.com/repos/${r.full_name}/commits?per_page=10`, config)
+                    .then(res => res.data.map(c => c.commit.message))
+                    .catch(() => [])
+            );
+            const results = await Promise.all(commitFetches);
+            results.forEach(msgs => allMessages.push(...msgs));
+
+            if (allMessages.length > 0) {
+                // Analyze messages
+                const avgLength = allMessages.reduce((s, m) => s + m.length, 0) / allMessages.length;
+                const badKeywords = ['fix', 'update', 'test', 'wip', 'asdf', 'temp', 'stuff', 'changes', 'initial commit'];
+                const goodMessages = allMessages.filter(m => {
+                    const lower = m.toLowerCase().trim();
+                    const isLongEnough = m.length > 15;
+                    const isNotGeneric = !badKeywords.some(kw => lower === kw || lower === kw + 's');
+                    return isLongEnough && isNotGeneric;
+                });
+
+                const qualityRatio = goodMessages.length / allMessages.length;
+                const lengthBonus = Math.min(avgLength / 60, 1); // 60+ chars avg = perfect
+                commitQualityScore = Math.round((qualityRatio * 14) + (lengthBonus * 6)); // max 20
+                commitQualityDetail = `${goodMessages.length}/${allMessages.length} quality commits, avg ${Math.round(avgLength)} chars`;
+            }
+        } catch (err) {
+            console.error('Commit quality error:', err.message);
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // 3. REAL PROJECTS (max 20 pts)
+        //    - Not forks
+        //    - Has description
+        //    - Has topics/tags
+        //    - Has stars
+        // ═══════════════════════════════════════════════════════════
+        let realProjectCount = 0;
+        let projectsWithDesc = 0;
+        let projectsWithTopics = 0;
+        let projectsWithStars = 0;
+
+        ownRepos.forEach(r => {
+            let isReal = false;
+            if (r.description && r.description.length > 10) { projectsWithDesc++; isReal = true; }
+            if (r.topics && r.topics.length > 0) { projectsWithTopics++; isReal = true; }
+            if (r.stargazers_count > 0) { projectsWithStars++; isReal = true; }
+            if (isReal) realProjectCount++;
+        });
+
+        const totalOwn = ownRepos.length || 1;
+        const descRatio = projectsWithDesc / totalOwn;
+        const topicRatio = projectsWithTopics / totalOwn;
+        const starRatio = Math.min(projectsWithStars / 5, 1); // 5+ starred repos = max
+        const realProjectsScore = Math.round((descRatio * 8) + (topicRatio * 6) + (starRatio * 6)); // max 20
+        const realProjectsDetail = `${realProjectCount} real projects, ${projectsWithDesc} with desc, ${projectsWithTopics} with topics, ${projectsWithStars} starred`;
+
+        // ═══════════════════════════════════════════════════════════
+        // 4. README QUALITY (max 20 pts)
+        //    - Check top 3 repos for README content
+        //    - Length, headings, code blocks, images/badges
+        // ═══════════════════════════════════════════════════════════
+        let readmeScore = 0;
+        let readmeDetail = 'No READMEs found';
+
+        try {
+            const topForReadme = ownRepos.filter(r => r.description).slice(0, 3);
+            let readmeScores = [];
+
+            const readmeFetches = topForReadme.map(r =>
+                axios.get(`https://api.github.com/repos/${r.full_name}/readme`, config)
+                    .then(res => {
+                        const content = Buffer.from(res.data.content, 'base64').toString('utf-8');
+                        return content;
+                    })
+                    .catch(() => null)
+            );
+            const readmes = await Promise.all(readmeFetches);
+
+            readmes.forEach(content => {
+                if (!content) return;
+                let score = 0;
+                // Length check (max 5 pts)
+                if (content.length > 2000) score += 5;
+                else if (content.length > 500) score += 3;
+                else if (content.length > 100) score += 1;
+                // Headings check (max 5 pts)
+                const headings = (content.match(/^#{1,3}\s/gm) || []).length;
+                score += Math.min(headings, 5);
+                // Code blocks (max 4 pts)
+                const codeBlocks = (content.match(/```/g) || []).length / 2;
+                score += Math.min(Math.floor(codeBlocks), 4);
+                // Badges/images (max 3 pts)
+                const images = (content.match(/!\[/g) || []).length;
+                score += Math.min(images, 3);
+                // Links (max 3 pts)
+                const links = (content.match(/\[.*?\]\(.*?\)/g) || []).length;
+                score += Math.min(links, 3);
+
+                readmeScores.push(Math.min(score, 20));
+            });
+
+            if (readmeScores.length > 0) {
+                readmeScore = Math.round(readmeScores.reduce((a, b) => a + b, 0) / readmeScores.length);
+                readmeDetail = `Analyzed ${readmeScores.length} READMEs, avg score ${readmeScore}/20`;
+            }
+        } catch (err) {
+            console.error('README analysis error:', err.message);
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // 5. CODE QUALITY (max 15 pts)
+        //    - Check top 5 repos for professional config files
+        //    - .gitignore, tests/, .eslintrc, CI config, etc.
+        // ═══════════════════════════════════════════════════════════
+        let codeQualityScore = 0;
+        let codeQualityDetail = 'No repos analyzed';
+
+        try {
+            const topForCode = ownRepos.slice(0, 5);
+            let totalSignals = 0;
+            let maxSignals = 0;
+
+            const codeFetches = topForCode.map(r =>
+                axios.get(`https://api.github.com/repos/${r.full_name}/contents`, config)
+                    .then(res => res.data.map(f => f.name.toLowerCase()))
+                    .catch(() => [])
+            );
+            const fileListsArr = await Promise.all(codeFetches);
+
+            fileListsArr.forEach(files => {
+                if (files.length === 0) return;
+                maxSignals += 6;
+
+                // Check for professional signals
+                if (files.some(f => f === '.gitignore')) totalSignals++;
+                if (files.some(f => f.includes('readme'))) totalSignals++;
+                if (files.some(f => f === 'package.json' || f === 'requirements.txt' || f === 'pom.xml' || f === 'cargo.toml' || f === 'go.mod')) totalSignals++;
+                if (files.some(f => f.includes('test') || f.includes('spec') || f.includes('__test'))) totalSignals++;
+                if (files.some(f => f.includes('eslint') || f.includes('prettier') || f.includes('.editorconfig') || f.includes('tsconfig'))) totalSignals++;
+                if (files.some(f => f === '.github' || f.includes('dockerfile') || f.includes('docker-compose') || f === '.env.example')) totalSignals++;
+            });
+
+            if (maxSignals > 0) {
+                codeQualityScore = Math.round((totalSignals / maxSignals) * 15);
+                codeQualityDetail = `${totalSignals}/${maxSignals} quality signals across ${topForCode.length} repos`;
+            }
+        } catch (err) {
+            console.error('Code quality error:', err.message);
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // TOTAL SCORE & RANK
+        // ═══════════════════════════════════════════════════════════
+        const totalScore = Math.min(consistencyScore + commitQualityScore + realProjectsScore + readmeScore + codeQualityScore, 100);
+
         let rank, rankColor;
-        if      (totalScore >= 90) { rank = 'Top 1%';  rankColor = '#f59e0b'; } // Elite Gold
-        else if (totalScore >= 75) { rank = 'Top 5%';  rankColor = '#6366f1'; } // Indigo
-        else if (totalScore >= 50) { rank = 'Top 15%'; rankColor = '#0ea5e9'; } // Light Blue
-        else if (totalScore >= 30) { rank = 'Top 30%'; rankColor = '#22c55e'; } // Green
-        else if (totalScore >= 10) { rank = 'Top 50%'; rankColor = '#f43f5e'; } // Rose
-        else                       { rank = 'Top 100%';rankColor = '#94a3b8'; } // Gray
+        if      (totalScore >= 90) { rank = 'Top 1%';   rankColor = '#f59e0b'; }
+        else if (totalScore >= 75) { rank = 'Top 5%';   rankColor = '#6366f1'; }
+        else if (totalScore >= 60) { rank = 'Top 10%';  rankColor = '#0ea5e9'; }
+        else if (totalScore >= 45) { rank = 'Top 20%';  rankColor = '#22c55e'; }
+        else if (totalScore >= 30) { rank = 'Top 35%';  rankColor = '#f43f5e'; }
+        else if (totalScore >= 15) { rank = 'Top 50%';  rankColor = '#fb923c'; }
+        else                       { rank = 'Top 100%'; rankColor = '#94a3b8'; }
 
         res.status(200).json({
             username,
@@ -214,9 +408,11 @@ const getDeveloperScore = async (req, res) => {
             rank,
             rankColor,
             breakdown: {
-                commits: { score: Math.round(commitScore), max: 50, value: totalCommits },
-                activeDays: { score: Math.round(daysScore), max: 40, value: activeDays },
-                repos: { score: Math.round(repoScore), max: 10, value: user.public_repos }
+                commitConsistency: { score: consistencyScore, max: 25, detail: consistencyDetail },
+                commitQuality:     { score: commitQualityScore, max: 20, detail: commitQualityDetail },
+                realProjects:      { score: realProjectsScore, max: 20, detail: realProjectsDetail },
+                readmeQuality:     { score: readmeScore, max: 20, detail: readmeDetail },
+                codeQuality:       { score: codeQualityScore, max: 15, detail: codeQualityDetail }
             }
         });
 

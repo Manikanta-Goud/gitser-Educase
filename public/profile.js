@@ -212,9 +212,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         const offset = circumference * (1 - score / 100);
 
         const breakdownItems = [
-            { label: '🔥 Total Commits', score: bd.commits.score, max: bd.commits.max, value: bd.commits.value + ' commits' },
-            { label: '📅 Active Days', score: bd.activeDays.score, max: bd.activeDays.max, value: bd.activeDays.value + ' days' },
-            { label: '📦 Repositories', score: bd.repos.score, max: bd.repos.max, value: bd.repos.value + ' repos' },
+            { label: '🔥 Commit Consistency', score: bd.commitConsistency.score, max: bd.commitConsistency.max, detail: bd.commitConsistency.detail },
+            { label: '✍️ Commit Quality', score: bd.commitQuality.score, max: bd.commitQuality.max, detail: bd.commitQuality.detail },
+            { label: '🚀 Real Projects', score: bd.realProjects.score, max: bd.realProjects.max, detail: bd.realProjects.detail },
+            { label: '📖 README Quality', score: bd.readmeQuality.score, max: bd.readmeQuality.max, detail: bd.readmeQuality.detail },
+            { label: '⚙️ Code Quality', score: bd.codeQuality.score, max: bd.codeQuality.max, detail: bd.codeQuality.detail },
         ];
 
         scorePanel.innerHTML = `
@@ -247,11 +249,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                         <div class="breakdown-item">
                             <div class="breakdown-label-row">
                                 <span class="breakdown-label">${item.label}</span>
-                                <span class="breakdown-pts">${item.score}<span style="color:var(--text-muted);font-weight:400">/${item.max} pts</span> &nbsp;<span style="color:var(--text-muted);font-size:0.8rem">(${item.value})</span></span>
+                                <span class="breakdown-pts">${item.score}<span style="color:var(--text-muted);font-weight:400">/${item.max} pts</span></span>
                             </div>
                             <div class="breakdown-bar-track">
                                 <div class="breakdown-bar-fill" data-pct="${(item.score / item.max) * 100}"></div>
                             </div>
+                            <p style="color:var(--text-muted); font-size:0.75rem; margin:0.2rem 0 0.6rem;">${item.detail}</p>
                         </div>
                     `).join('')}
                 </div>
