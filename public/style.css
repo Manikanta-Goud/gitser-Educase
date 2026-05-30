@@ -668,3 +668,104 @@ input[type="text"]:focus {
     color: var(--bg);
 }
 
+
+/* ===== PRO SPLASH SCREEN ===== */
+.splash-screen {
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100vh;
+    background: #040914; 
+    z-index: 9999;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    animation: slideUpFade 0.7s cubic-bezier(0.77, 0, 0.175, 1) 2.5s forwards;
+}
+.splash-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.5rem;
+}
+.splash-logo {
+    font-family: var(--font-head);
+    font-size: 5rem;
+    font-weight: 700;
+    color: #ffffff;
+    letter-spacing: -2px;
+    margin: 0;
+    animation: trackingIn 1s cubic-bezier(0.215, 0.610, 0.355, 1.000) both;
+}
+.splash-logo span {
+    color: #4da6ff;
+}
+.splash-decoder {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    font-family: var(--font-body);
+    font-size: 1.5rem;
+    font-weight: 500;
+    color: #94a3b8;
+    opacity: 0;
+    animation: fadeInOp 0.8s ease 0.8s forwards;
+}
+.decoder-word {
+    display: flex;
+    align-items: center;
+    letter-spacing: 1px;
+}
+.glow-red {
+    color: #ff4d4d;
+    font-weight: 700;
+    text-shadow: 0 0 15px rgba(255, 77, 77, 0.4);
+}
+.glow-blue {
+    color: #4da6ff;
+    font-weight: 700;
+    text-shadow: 0 0 15px rgba(77, 166, 255, 0.4);
+}
+.decoder-divider {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #334155;
+}
+.splash-loader {
+    width: 40px;
+    height: 4px;
+    background: #1e293b;
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+    margin-top: 1rem;
+    opacity: 0;
+    animation: fadeInOp 0.5s ease 1.2s forwards;
+}
+.splash-loader::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    height: 100%; width: 50%;
+    background: linear-gradient(90deg, #ff4d4d, #4da6ff);
+    border-radius: 4px;
+    animation: loadingBar 1.5s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
+}
+@keyframes trackingIn {
+    0% { letter-spacing: 15px; opacity: 0; }
+    100% { letter-spacing: -2px; opacity: 1; }
+}
+@keyframes fadeInOp {
+    to { opacity: 1; }
+}
+@keyframes loadingBar {
+    0% { left: -50%; }
+    100% { left: 100%; }
+}
+@keyframes slideUpFade {
+    to {
+        transform: translateY(-100%);
+        opacity: 0;
+        visibility: hidden;
+    }
+}
