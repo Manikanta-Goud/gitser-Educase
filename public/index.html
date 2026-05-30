@@ -28,7 +28,10 @@
         </div>
     </div>
     <script>
-        if (sessionStorage.getItem('splashShown')) {
+        const navEntries = window.performance.getEntriesByType('navigation');
+        const isReload = navEntries.length > 0 && navEntries[0].type === 'reload';
+
+        if (sessionStorage.getItem('splashShown') && !isReload) {
             document.getElementById('splash-screen').style.display = 'none';
         } else {
             sessionStorage.setItem('splashShown', 'true');
