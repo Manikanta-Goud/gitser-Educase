@@ -527,7 +527,6 @@ input[type="text"]:focus {
     width: 0%;
     transition: width 1s cubic-bezier(0.4,0,0.2,1);
 }
-}
 .lang-legend-note {
     text-align: center;
     color: var(--text-muted);
