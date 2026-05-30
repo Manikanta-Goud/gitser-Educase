@@ -12,7 +12,7 @@ const analyzeProfile = async (req, res) => {
 
     try {
         // Fetch from GitHub API
-        const githubResponse = await axios.get(`https://api.github.com/users/${username}`);
+        const githubResponse = await axios.get(`https://api.github.com/users/${username}`, ghHeaders());
         const data = githubResponse.data;
 
         const profileData = {
@@ -101,7 +101,7 @@ const getProfile = async (req, res) => {
 const getRepos = async (req, res) => {
     const { username } = req.params;
     try {
-        const response = await axios.get(`https://api.github.com/users/${username}/repos?sort=updated&per_page=30`);
+        const response = await axios.get(`https://api.github.com/users/${username}/repos?sort=updated&per_page=30`, ghHeaders());
         const repos = response.data.map(r => ({
             id: r.id,
             name: r.name,
@@ -126,7 +126,7 @@ const getRepos = async (req, res) => {
 const getFollowers = async (req, res) => {
     const { username } = req.params;
     try {
-        const response = await axios.get(`https://api.github.com/users/${username}/followers?per_page=50`);
+        const response = await axios.get(`https://api.github.com/users/${username}/followers?per_page=50`, ghHeaders());
         const followers = response.data.map(u => ({
             login: u.login,
             avatar_url: u.avatar_url,
@@ -142,7 +142,7 @@ const getFollowers = async (req, res) => {
 const getFollowing = async (req, res) => {
     const { username } = req.params;
     try {
-        const response = await axios.get(`https://api.github.com/users/${username}/following?per_page=50`);
+        const response = await axios.get(`https://api.github.com/users/${username}/following?per_page=50`, ghHeaders());
         const following = response.data.map(u => ({
             login: u.login,
             avatar_url: u.avatar_url,
@@ -393,14 +393,14 @@ const getDeveloperScore = async (req, res) => {
         // ═══════════════════════════════════════════════════════════
         const totalScore = Math.min(consistencyScore + commitQualityScore + realProjectsScore + readmeScore + codeQualityScore, 100);
 
-        let rank, rankColor;
-        if      (totalScore >= 90) { rank = 'Top 1%';   rankColor = '#f59e0b'; }
-        else if (totalScore >= 75) { rank = 'Top 5%';   rankColor = '#6366f1'; }
-        else if (totalScore >= 60) { rank = 'Top 10%';  rankColor = '#0ea5e9'; }
-        else if (totalScore >= 45) { rank = 'Top 20%';  rankColor = '#22c55e'; }
-        else if (totalScore >= 30) { rank = 'Top 35%';  rankColor = '#f43f5e'; }
-        else if (totalScore >= 15) { rank = 'Top 50%';  rankColor = '#fb923c'; }
-        else                       { rank = 'Top 100%'; rankColor = '#94a3b8'; }
+        let rank, rankColor = '#FFD662';
+        if      (totalScore >= 90) { rank = 'Top 1%';   }
+        else if (totalScore >= 75) { rank = 'Top 5%';   }
+        else if (totalScore >= 60) { rank = 'Top 10%';  }
+        else if (totalScore >= 45) { rank = 'Top 20%';  }
+        else if (totalScore >= 30) { rank = 'Top 35%';  }
+        else if (totalScore >= 15) { rank = 'Top 50%';  }
+        else                       { rank = 'Top 100%'; }
 
         res.status(200).json({
             username,
@@ -432,7 +432,7 @@ const getLanguageStats = async (req, res) => {
     try {
         // Fetch up to 100 repos
         const reposRes = await axios.get(
-            `https://api.github.com/users/${username}/repos?per_page=100&sort=updated`
+            `https://api.github.com/users/${username}/repos?per_page=100&sort=updated`, ghHeaders()
         );
         const repos = reposRes.data;
 
